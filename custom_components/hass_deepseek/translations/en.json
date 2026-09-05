@@ -35,7 +35,14 @@
       "topped_up_balance": { "name": "Topped-up credit" },
       "granted_balance": { "name": "Granted credit" },
       "spend_today": { "name": "Spend today" },
-      "spend_month": { "name": "Spend this month" }
+      "spend_month": { "name": "Spend this month" },
+      "last_topup_amount": { "name": "Last top-up" },
+      "monthly_projection": { "name": "Projected month spend" },
+      "avg_daily_spend_30d": { "name": "Average daily spend (30d)" },
+      "days_left": { "name": "Estimated days left" }
+    },
+    "binary_sensor": {
+      "api_status": { "name": "API status" }
     }
   }
 }

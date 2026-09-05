@@ -13,7 +13,7 @@ MAX_SCAN_INTERVAL = 1440  # minutes (24 h)
 
 API_BALANCE_URL = "https://api.deepseek.com/user/balance"
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["binary_sensor", "sensor"]
 
 # Nom du fichier JSON de stockage des dépenses (par config entry)
 STORAGE_VERSION = 1

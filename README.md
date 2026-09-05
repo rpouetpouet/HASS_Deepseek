@@ -15,7 +15,13 @@ A **Home Assistant custom integration** that shows your **DeepSeek API account b
   - `Granted credit` (diagnostics)
   - `Today's spend` — balance delta of the day
   - `This month's spend` — balance delta of the month
+  - `Last top-up` — amount (with timestamp attribute)
+  - `Projected month spend` — current burn rate extrapolated to month end
+  - `Average daily spend (30d)` — rolling average from locally stored history
+  - `Estimated days left` — balance ÷ average daily spend
+- **Binary sensor `API status`**: on when the DeepSeek API is reachable (device class `connectivity`).
 - **Automatic top-up detection**: when the topped-up balance increases, the difference is **not** counted as spend (local state, persists across restarts).
+- **Daily spend history is stored locally** (~62 days), powering the rolling averages — no dependency on the platform CSV export.
 - One “DeepSeek” device with a diagnostics entity exposing `currency`, `api_is_available` and last update attributes.
 
 ## Installation
@@ -54,6 +60,11 @@ The connection is tested before the configuration entry is created.
 | `sensor.deepseek_granted_balance` | monetary | Granted credit (diagnostics) |
 | `sensor.deepseek_daily_spend` | monetary | Estimated spend today (balance delta) |
 | `sensor.deepseek_monthly_spend` | monetary | Estimated spend this month (balance delta) |
+| `sensor.deepseek_last_topup_amount` | monetary | Amount of the last detected top-up (`last_topup_ts` attribute) |
+| `sensor.deepseek_monthly_projection` | monetary | Projected spend at current pace for the ongoing month |
+| `sensor.deepseek_avg_daily_spend_30d` | monetary | Rolling average daily spend (last ~30 days of local history) |
+| `sensor.deepseek_days_left` | — (days) | Balance ÷ average daily spend — rough autonomy estimate |
+| `binary_sensor.deepseek_api` | connectivity | ON when the DeepSeek API is reachable |
 
 ## Known limitations (V1)
 

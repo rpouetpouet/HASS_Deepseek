@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import logging
+import time
 from typing import Any
 
 import aiohttp
@@ -72,7 +74,8 @@ class DeepSeekUsageStore:
     async def record(self, cur_total: float, cur_topped: float) -> tuple[float, float]:
         """Enregistre un point de solde ; renvoie (spend_today, spend_month).
 
-        top-up détecté : si topped_up augmente, l'écart n'est pas compté comme dépense.
+        top-up détecté : si topped_up augmente, l'écart n'est pas compté comme dépense
+        et la recharge est mémorisée (montant + horodatage).
         """
         data = await self._ensure()
         now = self._now()
@@ -93,6 +96,8 @@ class DeepSeekUsageStore:
             data["last_topped"] = cur_topped
         else:
             topup = max(0.0, cur_topped - last_topped)
+            if topup > 0:
+                data["last_topup"] = {"amount": topup, "ts": now.isoformat()}
             spend = (last_total + topup) - cur_total
             if spend < 0:
                 spend = 0.0
@@ -113,6 +118,15 @@ class DeepSeekUsageStore:
 
         await self._store.async_save(data)
         return days.get(day_key, 0.0), months.get(month_key, 0.0)
+
+    async def details(self) -> dict[str, Any]:
+        """Copie des données utiles aux capteurs dérivés (historique + dernière recharge)."""
+        data = await self._ensure()
+        return {
+            "days": dict(data["days"]),
+            "months": dict(data["months"]),
+            "last_topup": data.get("last_topup"),
+        }
 
 
 class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -140,8 +154,26 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         topped = float(info.get("topped_up_balance") or 0)
 
         self.spend_today, self.spend_month = await self.usage_store.record(total, topped)
-        self.last_success_ts = __import__("time").time()
+        self.last_success_ts = time.time()
 
+        det = await self.usage_store.details()
+        now = dt.datetime.now().astimezone()
+        today_key = now.strftime("%Y-%m-%d")
+        past = [v for k, v in sorted(det["days"].items()) if k < today_key][-30:]
+
+        if past:
+            avg30 = round(sum(past) / len(past), 3)
+        else:
+            avg30 = None  # pas encore d'historique
+        days_left = round(total / avg30, 1) if avg30 and avg30 > 0 else None
+
+        if self.spend_month > 0 and now.day:
+            dim = calendar.monthrange(now.year, now.month)[1]
+            monthly_projection = round(self.spend_month / now.day * dim, 2)
+        else:
+            monthly_projection = None
+
+        last_topup = det.get("last_topup") or {}
         return {
             "currency": currency,
             "total_balance": total,
@@ -149,5 +181,10 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "topped_up_balance": topped,
             "spend_today": self.spend_today,
             "spend_month": self.spend_month,
+            "last_topup_amount": last_topup.get("amount"),
+            "last_topup_ts": last_topup.get("ts"),
+            "avg_daily_spend_30d": avg30,
+            "days_left": days_left,
+            "monthly_projection": monthly_projection,
             "last_success_ts": self.last_success_ts,
         }

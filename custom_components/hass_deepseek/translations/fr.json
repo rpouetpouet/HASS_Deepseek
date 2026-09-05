@@ -35,7 +35,14 @@
       "topped_up_balance": { "name": "Crédit rechargé" },
       "granted_balance": { "name": "Crédit offert" },
       "spend_today": { "name": "Dépense aujourd'hui" },
-      "spend_month": { "name": "Dépense ce mois-ci" }
+      "spend_month": { "name": "Dépense ce mois-ci" },
+      "last_topup_amount": { "name": "Dernière recharge" },
+      "monthly_projection": { "name": "Projection fin de mois" },
+      "avg_daily_spend_30d": { "name": "Dépense moyenne / jour (30 j)" },
+      "days_left": { "name": "Jours estimés restants" }
+    },
+    "binary_sensor": {
+      "api_status": { "name": "État API" }
     }
   }
 }
