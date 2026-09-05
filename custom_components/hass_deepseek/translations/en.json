@@ -39,7 +39,13 @@
       "last_topup_amount": { "name": "Last top-up" },
       "monthly_projection": { "name": "Projected month spend" },
       "avg_daily_spend_30d": { "name": "Average daily spend (30d)" },
-      "days_left": { "name": "Estimated days left" }
+      "days_left": { "name": "Estimated days left" },
+      "tariff": { "name": "Billing period" },
+      "spend_today_peak": { "name": "Spend today — peak" },
+      "spend_today_offpeak": { "name": "Spend today — off-peak" },
+      "spend_month_peak": { "name": "Spend this month — peak" },
+      "spend_month_offpeak": { "name": "Spend this month — off-peak" },
+      "potential_savings_month": { "name": "Potential savings (off-peak shift)" }
     },
     "binary_sensor": {
       "api_status": { "name": "API status" }

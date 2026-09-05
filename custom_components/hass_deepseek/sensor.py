@@ -83,6 +83,48 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
     ),
+    SensorEntityDescription(
+        key="tariff",
+        translation_key="tariff",
+        device_class=None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="spend_today_peak",
+        translation_key="spend_today_peak",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key="spend_today_offpeak",
+        translation_key="spend_today_offpeak",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key="spend_month_peak",
+        translation_key="spend_month_peak",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key="spend_month_offpeak",
+        translation_key="spend_month_offpeak",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key="potential_savings_month",
+        translation_key="potential_savings_month",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=2,
+    ),
 )
 
 # Clés dont la valeur est un montant (unit = devise)
@@ -95,6 +137,11 @@ _MONETARY_KEYS = {
     "last_topup_amount",
     "monthly_projection",
     "avg_daily_spend_30d",
+    "spend_today_peak",
+    "spend_today_offpeak",
+    "spend_month_peak",
+    "spend_month_offpeak",
+    "potential_savings_month",
 }
 
 
@@ -132,11 +179,21 @@ class DeepSeekSensor(CoordinatorEntity[DeepSeekCoordinator], SensorEntity):
         }
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float | str | None:
         data = self.coordinator.data
         if data is None:
             return None
         return data.get(self.entity_description.key)
+
+    @property
+    def icon(self) -> str | None:
+        """Icône dynamique pour le capteur de période tarifaire."""
+        if self.entity_description.key != "tariff":
+            return None
+        data = self.coordinator.data
+        return (
+            "mdi:white-balance-sunny" if data and data.get("tariff") == "peak" else "mdi:weather-night"
+        )
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -159,4 +216,8 @@ class DeepSeekSensor(CoordinatorEntity[DeepSeekCoordinator], SensorEntity):
         }
         if self.entity_description.key == "last_topup_amount":
             attrs["last_topup_ts"] = data.get("last_topup_ts")
+        if self.entity_description.key == "tariff":
+            attrs["next_tariff_state"] = data.get("next_tariff_state")
+            attrs["next_tariff_change"] = data.get("next_tariff_change")
+            attrs["pricing_grid_usd_per_m"] = data.get("pricing_grid")
         return attrs

@@ -15,9 +15,40 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import API_BALANCE_URL, CONF_API_KEY, STORAGE_VERSION
+from .const import (
+    API_BALANCE_URL,
+    CONF_API_KEY,
+    PEAK_WINDOWS_UTC,
+    PRICING_GRID,
+    STORAGE_VERSION,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def tariff_at(hour_utc: int) -> str:
+    """Renvoie 'peak' ou 'off-peak' pour une heure UTC donnée (fenêtres officielles)."""
+    for start, end in PEAK_WINDOWS_UTC:
+        if start <= hour_utc < end:
+            return "peak"
+    return "off-peak"
+
+
+def next_tariff_change(now_utc: dt.datetime) -> tuple[str, dt.datetime]:
+    """Prochaine bascule tarifaire → (état après bascule, horodatage)."""
+    boundaries = (1, 4, 6, 10)  # heures UTC des changements
+    nxt = None
+    for bd in boundaries:
+        cand = now_utc.replace(hour=bd, minute=0, second=0, microsecond=0)
+        if cand > now_utc:
+            nxt = cand
+            break
+    if nxt is None:  # après 10h UTC → bascule à 01h le lendemain
+        nxt = (now_utc + dt.timedelta(days=1)).replace(
+            hour=1, minute=0, second=0, microsecond=0
+        )
+    state = "peak" if nxt.hour in (1, 6) else "off-peak"
+    return state, nxt
 
 
 async def fetch_balance(
@@ -65,6 +96,9 @@ class DeepSeekUsageStore:
             self._data.setdefault("last_topped", None)
             self._data.setdefault("days", {})
             self._data.setdefault("months", {})
+            self._data.setdefault("day_split", {})
+            self._data.setdefault("months_peak", {})
+            self._data.setdefault("months_offpeak", {})
         return self._data
 
     @staticmethod
@@ -76,16 +110,25 @@ class DeepSeekUsageStore:
 
         top-up détecté : si topped_up augmente, l'écart n'est pas compté comme dépense
         et la recharge est mémorisée (montant + horodatage).
+        La dépense est aussi ventilée peak / off-peak selon le tarif en vigueur
+        à l'instant du poll (approximation : pas de timestamps par requête).
         """
         data = await self._ensure()
         now = self._now()
         day_key = now.strftime("%Y-%m-%d")
         month_key = now.strftime("%Y-%m")
+        bucket = tariff_at(now.astimezone(dt.timezone.utc).hour)
 
         days: dict[str, float] = data["days"]
         months: dict[str, float] = data["months"]
+        months_peak: dict[str, float] = data["months_peak"]
+        months_offpeak: dict[str, float] = data["months_offpeak"]
         days.setdefault(day_key, 0.0)
         months.setdefault(month_key, 0.0)
+        months_peak.setdefault(month_key, 0.0)
+        months_offpeak.setdefault(month_key, 0.0)
+        day_split: dict[str, dict[str, float]] = data["day_split"]
+        day_split.setdefault(day_key, {"peak": 0.0, "off-peak": 0.0})
 
         last_total = data["last_total"]
         last_topped = data["last_topped"]
@@ -103,6 +146,11 @@ class DeepSeekUsageStore:
                 spend = 0.0
             days[day_key] += spend
             months[month_key] += spend
+            day_split[day_key][bucket] += spend
+            if bucket == "peak":
+                months_peak[month_key] += spend
+            else:
+                months_offpeak[month_key] += spend
             data["last_total"] = cur_total
             data["last_topped"] = cur_topped
 
@@ -111,26 +159,32 @@ class DeepSeekUsageStore:
         for k in list(days):
             if k not in keep_days:
                 days.pop(k, None)
+                day_split.pop(k, None)
         keep_months = sorted(months, reverse=True)[:13]
         for k in list(months):
             if k not in keep_months:
                 months.pop(k, None)
+                months_peak.pop(k, None)
+                months_offpeak.pop(k, None)
 
         await self._store.async_save(data)
         return days.get(day_key, 0.0), months.get(month_key, 0.0)
 
     async def details(self) -> dict[str, Any]:
-        """Copie des données utiles aux capteurs dérivés (historique + dernière recharge)."""
+        """Copie des données utiles aux capteurs dérivés (historique + ventilation)."""
         data = await self._ensure()
         return {
             "days": dict(data["days"]),
             "months": dict(data["months"]),
+            "day_split": {k: dict(v) for k, v in data["day_split"].items()},
+            "months_peak": dict(data["months_peak"]),
+            "months_offpeak": dict(data["months_offpeak"]),
             "last_topup": data.get("last_topup"),
         }
 
 
 class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Polling périodique + exposition des soldes et dépenses."""
+    """Polling périodique + exposition des soldes, dépenses et tarifs."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str, api_key: str, currency: str, scan_interval_min: int) -> None:
         self._api_key = api_key
@@ -157,21 +211,31 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_success_ts = time.time()
 
         det = await self.usage_store.details()
-        now = dt.datetime.now().astimezone()
-        today_key = now.strftime("%Y-%m-%d")
-        past = [v for k, v in sorted(det["days"].items()) if k < today_key][-30:]
+        now_local = dt.datetime.now().astimezone()
+        today_key = now_local.strftime("%Y-%m-%d")
+        month_key = now_local.strftime("%Y-%m")
 
+        past = [v for k, v in sorted(det["days"].items()) if k < today_key][-30:]
         if past:
             avg30 = round(sum(past) / len(past), 3)
         else:
             avg30 = None  # pas encore d'historique
         days_left = round(total / avg30, 1) if avg30 and avg30 > 0 else None
 
-        if self.spend_month > 0 and now.day:
-            dim = calendar.monthrange(now.year, now.month)[1]
-            monthly_projection = round(self.spend_month / now.day * dim, 2)
+        if self.spend_month > 0 and now_local.day:
+            dim = calendar.monthrange(now_local.year, now_local.month)[1]
+            monthly_projection = round(self.spend_month / now_local.day * dim, 2)
         else:
             monthly_projection = None
+
+        today_split = det["day_split"].get(today_key, {"peak": 0.0, "off-peak": 0.0})
+        month_peak = det["months_peak"].get(month_key, 0.0)
+        month_offpeak = det["months_offpeak"].get(month_key, 0.0)
+        potential_savings = round(month_peak / 2, 2) if month_peak > 0 else 0.0
+
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        tariff = tariff_at(now_utc.hour)
+        next_state, next_ts = next_tariff_change(now_utc)
 
         last_topup = det.get("last_topup") or {}
         return {
@@ -186,5 +250,14 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "avg_daily_spend_30d": avg30,
             "days_left": days_left,
             "monthly_projection": monthly_projection,
+            "tariff": tariff,
+            "next_tariff_state": next_state,
+            "next_tariff_change": next_ts.isoformat(),
+            "spend_today_peak": today_split.get("peak", 0.0),
+            "spend_today_offpeak": today_split.get("off-peak", 0.0),
+            "spend_month_peak": month_peak,
+            "spend_month_offpeak": month_offpeak,
+            "potential_savings_month": potential_savings,
+            "pricing_grid": PRICING_GRID,
             "last_success_ts": self.last_success_ts,
         }

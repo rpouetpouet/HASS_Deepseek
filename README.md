@@ -19,6 +19,8 @@ A **Home Assistant custom integration** that shows your **DeepSeek API account b
   - `Projected month spend` — current burn rate extrapolated to month end
   - `Average daily spend (30d)` — rolling average from locally stored history
   - `Estimated days left` — balance ÷ average daily spend
+- **Billing period sensor `tariff`**: `peak` / `off-peak` (official DeepSeek windows: peak = 01:00–04:00 & 06:00–10:00 UTC), with `next_tariff_change` + the official price grid (USD/M tokens, peak & off-peak) in attributes — usable in automations to schedule heavy jobs off-peak (−50 %).
+- **Peak/off-peak spend split**: today's and month's spend attributed to peak vs off-peak buckets (local approximation from poll timestamps), plus `potential_savings_month` = what shifting the peak spend to off-peak would save (peak spend ÷ 2).
 - **Binary sensor `API status`**: on when the DeepSeek API is reachable (device class `connectivity`).
 - **Automatic top-up detection**: when the topped-up balance increases, the difference is **not** counted as spend (local state, persists across restarts).
 - **Daily spend history is stored locally** (~62 days), powering the rolling averages — no dependency on the platform CSV export.
@@ -58,12 +60,16 @@ The connection is tested before the configuration entry is created.
 | `sensor.deepseek_balance` | monetary | Total account balance |
 | `sensor.deepseek_topped_up_balance` | monetary | Topped-up credit |
 | `sensor.deepseek_granted_balance` | monetary | Granted credit (diagnostics) |
-| `sensor.deepseek_daily_spend` | monetary | Estimated spend today (balance delta) |
-| `sensor.deepseek_monthly_spend` | monetary | Estimated spend this month (balance delta) |
+| `sensor.deepseek_spend_today` | monetary | Estimated spend today (balance delta) |
+| `sensor.deepseek_spend_month` | monetary | Estimated spend this month (balance delta) |
 | `sensor.deepseek_last_topup_amount` | monetary | Amount of the last detected top-up (`last_topup_ts` attribute) |
 | `sensor.deepseek_monthly_projection` | monetary | Projected spend at current pace for the ongoing month |
 | `sensor.deepseek_avg_daily_spend_30d` | monetary | Rolling average daily spend (last ~30 days of local history) |
 | `sensor.deepseek_days_left` | — (days) | Balance ÷ average daily spend — rough autonomy estimate |
+| `sensor.deepseek_tariff` | — | Current billing period: `peak` or `off-peak` (attrs: next change, price grid) |
+| `sensor.deepseek_spend_today_peak` / `_offpeak` | monetary | Today's spend split by tariff (approximate) |
+| `sensor.deepseek_spend_month_peak` / `_offpeak` | monetary | This month's spend split by tariff (approximate) |
+| `sensor.deepseek_potential_savings_month` | monetary | What shifting peak usage to off-peak would save (peak ÷ 2) |
 | `binary_sensor.deepseek_api` | connectivity | ON when the DeepSeek API is reachable |
 
 ## Known limitations (V1)

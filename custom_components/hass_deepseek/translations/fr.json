@@ -39,7 +39,13 @@
       "last_topup_amount": { "name": "Dernière recharge" },
       "monthly_projection": { "name": "Projection fin de mois" },
       "avg_daily_spend_30d": { "name": "Dépense moyenne / jour (30 j)" },
-      "days_left": { "name": "Jours estimés restants" }
+      "days_left": { "name": "Jours estimés restants" },
+      "tariff": { "name": "Période tarifaire" },
+      "spend_today_peak": { "name": "Dépense aujourd'hui — heures pleines" },
+      "spend_today_offpeak": { "name": "Dépense aujourd'hui — heures creuses" },
+      "spend_month_peak": { "name": "Dépense ce mois — heures pleines" },
+      "spend_month_offpeak": { "name": "Dépense ce mois — heures creuses" },
+      "potential_savings_month": { "name": "Économie potentielle (passage en creux)" }
     },
     "binary_sensor": {
       "api_status": { "name": "État API" }
