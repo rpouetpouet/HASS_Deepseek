@@ -248,6 +248,7 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         remaining_min = max(0.0, (next_ts.timestamp() - time.time()) / 60.0)
+        remaining_int = int(round(remaining_min))
 
         last_topup = det.get("last_topup") or {}
         return {
@@ -265,7 +266,7 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "tariff": tariff,
             "next_tariff_state": next_state,
             "next_tariff_change": next_ts.isoformat(),
-            "tariff_change_in_min": round(remaining_min, 1),
+            "tariff_change_in_min": remaining_int,
             "spend_today_peak": today_split.get("peak", 0.0),
             "spend_today_offpeak": today_split.get("off-peak", 0.0),
             "spend_month_peak": month_peak,
@@ -298,7 +299,7 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             tariff_changed = True
 
         remaining_min = max(0.0, (self._next_ts.timestamp() - time.time()) / 60.0)
-        new_rounded = round(remaining_min, 1)
+        new_rounded = int(round(remaining_min))
         if not tariff_changed and new_rounded == new_data.get("tariff_change_in_min"):
             return  # rien de nouveau à publier
         new_data["tariff_change_in_min"] = new_rounded

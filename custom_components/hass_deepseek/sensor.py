@@ -95,7 +95,6 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
         device_class=None,
         native_unit_of_measurement="min",
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=1,
     ),
     SensorEntityDescription(
         key="spend_today_peak",
