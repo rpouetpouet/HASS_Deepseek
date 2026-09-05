@@ -45,8 +45,8 @@ class DeepSeekApiBinarySensor(
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": entry.title,
-            "manufacturer": "DeepSeek",
-            "model": "API Account",
+            "manufacturer": "rpouetpouet",
+            "model": "DeepSeek Usage & Balance (unofficial)",
         }
 
     @property
