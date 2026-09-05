@@ -18,6 +18,14 @@ Intégration **Home Assistant** (custom component) qui affiche le **solde et la 
 
 ## Installation
 
+### HACS — en un clic
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=rpouetpouet&repository=HASS_Deepseek&category=integration)
+
+Le bouton ci-dessus ouvre **directement ce repo dans HACS** sur ton instance (via `my.home-assistant.io` — il te demandera d'autoriser l'ouverture de ton HA si ce n'est pas déjà fait).
+
+> ⚠️ **Repo privé** : HACS doit être connecté à un compte GitHub ayant accès au repo (ou un PAT configuré). Si tu rends le repo **public**, le bouton fonctionne pour tout le monde sans configuration.
+
 ### Manuelle (recommandée pour un repo privé)
 
 1. Copier le dossier `custom_components/hass_deepseek/` dans le dossier `custom_components/` de ton installation HA.
