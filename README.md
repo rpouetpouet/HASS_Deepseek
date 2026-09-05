@@ -1,60 +1,76 @@
-# HASS_Deepseek
-
-Intégration **Home Assistant** (custom component) qui affiche le **solde et la consommation estimée** de ton compte **DeepSeek API**.
-
-> ⚠️ **V1 — API-native.** DeepSeek n'expose publiquement que `/user/balance`. Les capteurs de dépense sont donc **calculés par différence de solde** (avec détection des recharges). Les stats détaillées par tokens/modèle ne sont pas disponibles via l'API publique.
-
-## Fonctionnalités
-
-- **Config flow** : saisie de la clé API + **intervalle de polling paramétrable** (5 min – 24 h, défaut 60 min), modifiable ensuite dans Options.
-- Capteurs (par devise du compte, ex. USD) :
-  - `Solde total` (monétaire)
-  - `Crédit rechargé` (topped-up)
-  - `Crédit offert` (granted — diagnostique)
-  - `Dépense aujourd'hui` — delta de solde du jour
-  - `Dépense ce mois-ci` — delta de solde du mois
-- **Détection automatique des recharges** : quand `topped_up` augmente, la différence n'est pas comptée comme une dépense (stockage local HA, persistant entre redémarrages).
-- Device « DeepSeek » avec entité de diagnostic, attributs (currency, is_available, dernière mise à jour).
-
-## Installation
-
-### HACS — en un clic
+# DeepSeek Usage & Balance for Home Assistant
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=rpouetpouet&repository=HASS_Deepseek&category=integration)
 
-Le bouton ci-dessus ouvre **directement ce repo dans HACS** sur ton instance (via `my.home-assistant.io` — il te demandera d'autoriser l'ouverture de ton HA si ce n'est pas déjà fait).
+A **Home Assistant custom integration** that shows your **DeepSeek API account balance and estimated spend** directly in Home Assistant.
 
-> ⚠️ **Repo privé** : HACS doit être connecté à un compte GitHub ayant accès au repo (ou un PAT configuré). Si tu rends le repo **public**, le bouton fonctionne pour tout le monde sans configuration.
+> ⚠️ **V1 — API-native.** The DeepSeek public API only exposes `/user/balance`. Spend sensors are therefore **computed from balance deltas** (with automatic top-up detection). Detailed per-token / per-model statistics are not available through the public API.
 
-### Manuelle (recommandée pour un repo privé)
+## Features
 
-1. Copier le dossier `custom_components/hass_deepseek/` dans le dossier `custom_components/` de ton installation HA.
-2. Redémarrer HA (ou *Paramètres → Système → Redémarrer*).
-3. *Paramètres → Appareils & services → Ajouter une intégration → **DeepSeek Usage & Balance***.
-4. Saisir ta clé API DeepSeek (`https://platform.deepseek.com/api_keys`) et l'intervalle de polling.
-5. Valider — la connexion est testée avant création.
+- **Config flow**: paste your API key, choose a **polling interval** (5 min – 24 h, default 60 min) — changeable later via *Options*.
+- Sensors (in your account currency, e.g. USD):
+  - `Total balance`
+  - `Topped-up credit`
+  - `Granted credit` (diagnostics)
+  - `Today's spend` — balance delta of the day
+  - `This month's spend` — balance delta of the month
+- **Automatic top-up detection**: when the topped-up balance increases, the difference is **not** counted as spend (local state, persists across restarts).
+- One “DeepSeek” device with a diagnostics entity exposing `currency`, `api_is_available` and last update attributes.
 
-## Capteurs
+## Installation
 
-| Entité | Classe | Description |
+### HACS (recommended)
+
+1. Click the badge above — or add the repository manually:
+   **HACS → ⋯ → Custom repositories** → `https://github.com/rpouetpouet/HASS_Deepseek` → category **Integration**.
+2. **Download** the latest release.
+3. **Restart Home Assistant.**
+4. *Settings → Devices & Services → Add Integration → **DeepSeek Usage & Balance***.
+
+### Manual
+
+1. Copy the `custom_components/hass_deepseek/` folder into the `custom_components/` directory of your Home Assistant installation.
+2. Restart Home Assistant.
+3. Add the integration as above.
+
+## Configuration
+
+During setup you will be asked for:
+
+| Field | Description |
+|---|---|
+| **API key** | Create one at <https://platform.deepseek.com/api_keys> |
+| **Polling interval** | How often the balance is fetched (5 min – 24 h, default 60 min) |
+
+The connection is tested before the configuration entry is created.
+
+## Sensors
+
+| Entity | Device class | Description |
 |---|---|---|
-| `sensor.deepseek_balance` | monetary | Solde total du compte (USD) |
-| `sensor.deepseek_topped_up_balance` | monetary | Crédit rechargé |
-| `sensor.deepseek_granted_balance` | monetary | Crédit offert (diagnostic) |
-| `sensor.deepseek_daily_spend` | monetary | Dépense estimée du jour (delta de solde) |
-| `sensor.deepseek_monthly_spend` | monetary | Dépense estimée du mois (delta de solde) |
+| `sensor.deepseek_balance` | monetary | Total account balance |
+| `sensor.deepseek_topped_up_balance` | monetary | Topped-up credit |
+| `sensor.deepseek_granted_balance` | monetary | Granted credit (diagnostics) |
+| `sensor.deepseek_daily_spend` | monetary | Estimated spend today (balance delta) |
+| `sensor.deepseek_monthly_spend` | monetary | Estimated spend this month (balance delta) |
 
-## Limites connues (V1)
+## Known limitations (V1)
 
-- Le solde API a une granularité de **2 décimales** → les très petites dépenses journalières peuvent apparaître à `0.00`.
-- La dépense est une **estimation par différence de solde**, pas la facture exacte de la plateforme (qui inclut tokens/cache).
-- Une recharge **offerte** (granted) qui augmente sans `topped_up` n'est pas détectée (rare).
+- The balance API has a granularity of **2 decimals** — very small daily spends may show as `0.00`.
+- Spend is an **estimate from balance deltas**, not the exact platform invoice (which includes tokens/cache pricing).
+- A **granted** credit increase without a topped-up change is not detected (rare).
 
-## Dépannage
+## Troubleshooting
 
-- `cannot_connect` : API injoignable ou clé invalide.
-- Logs : recherche `hass_deepseek` dans *Paramètres → Système → Journaux*.
+- `cannot_connect`: API unreachable or invalid key.
+- Logs: search for `hass_deepseek` in *Settings → System → Logs*.
+- **Icons**: the DeepSeek brand images require Home Assistant **2026.3+** (`brand/` folder support); the integration itself works on older versions.
 
-## Licence
+## Disclaimer
+
+Unofficial project — not affiliated with or endorsed by DeepSeek.
+
+## License
 
 MIT — © 2026 rpouetpouet
