@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DeepSeek API",
+        "description": "Enter your DeepSeek API key (https://platform.deepseek.com/api_keys). Polling interval can be changed later in the integration options.",
+        "data": {
+          "api_key": "API key",
+          "scan_interval": "Polling interval (minutes)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid API key (HTTP 401).",
+      "cannot_connect": "Cannot reach the DeepSeek API."
+    },
+    "abort": {
+      "already_configured": "This API key is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "DeepSeek — Options",
+        "description": "Change the polling interval (5 min – 24 h).",
+        "data": {
+          "scan_interval": "Polling interval (minutes)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_balance": { "name": "Total balance" },
+      "topped_up_balance": { "name": "Topped-up credit" },
+      "granted_balance": { "name": "Granted credit" },
+      "spend_today": { "name": "Spend today" },
+      "spend_month": { "name": "Spend this month" }
+    }
+  }
+}
