@@ -67,6 +67,7 @@ The connection is tested before the configuration entry is created.
 | `sensor.deepseek_avg_daily_spend_30d` | monetary | Rolling average daily spend (last ~30 days of local history) |
 | `sensor.deepseek_days_left` | — (days) | Balance ÷ average daily spend — rough autonomy estimate |
 | `sensor.deepseek_tariff` | — | Current billing period: `peak` or `off-peak` (attrs: next change, price grid) |
+| `sensor.deepseek_tariff_change_in` | min | Countdown to the next tariff change (updates every minute, no extra API call) |
 | `sensor.deepseek_spend_today_peak` / `_offpeak` | monetary | Today's spend split by tariff (approximate) |
 | `sensor.deepseek_spend_month_peak` / `_offpeak` | monetary | This month's spend split by tariff (approximate) |
 | `sensor.deepseek_potential_savings_month` | monetary | What shifting peak usage to off-peak would save (peak ÷ 2) |

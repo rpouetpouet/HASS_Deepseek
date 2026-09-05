@@ -41,6 +41,7 @@
       "avg_daily_spend_30d": { "name": "Dépense moyenne / jour (30 j)" },
       "days_left": { "name": "Jours estimés restants" },
       "tariff": { "name": "Période tarifaire" },
+      "tariff_change_in_min": { "name": "Temps avant prochain changement" },
       "spend_today_peak": { "name": "Dépense aujourd'hui — heures pleines" },
       "spend_today_offpeak": { "name": "Dépense aujourd'hui — heures creuses" },
       "spend_month_peak": { "name": "Dépense ce mois — heures pleines" },

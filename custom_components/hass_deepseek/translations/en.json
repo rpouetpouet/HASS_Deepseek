@@ -41,6 +41,7 @@
       "avg_daily_spend_30d": { "name": "Average daily spend (30d)" },
       "days_left": { "name": "Estimated days left" },
       "tariff": { "name": "Billing period" },
+      "tariff_change_in_min": { "name": "Time to next tariff change" },
       "spend_today_peak": { "name": "Spend today — peak" },
       "spend_today_offpeak": { "name": "Spend today — off-peak" },
       "spend_month_peak": { "name": "Spend this month — peak" },

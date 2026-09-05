@@ -90,6 +90,14 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
+        key="tariff_change_in_min",
+        translation_key="tariff_change_in_min",
+        device_class=None,
+        native_unit_of_measurement="min",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
         key="spend_today_peak",
         translation_key="spend_today_peak",
         device_class=SensorDeviceClass.MONETARY,

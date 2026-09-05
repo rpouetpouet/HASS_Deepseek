@@ -12,6 +12,7 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -193,6 +194,8 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.spend_today: float = 0.0
         self.spend_month: float = 0.0
         self.last_success_ts: float | None = None
+        self._next_ts: dt.datetime | None = None
+        self._ticker_started = False
         super().__init__(
             hass,
             _LOGGER,
@@ -236,6 +239,15 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now_utc = dt.datetime.now(dt.timezone.utc)
         tariff = tariff_at(now_utc.hour)
         next_state, next_ts = next_tariff_change(now_utc)
+        self._next_ts = next_ts
+
+        if not self._ticker_started:
+            self._ticker_started = True
+            async_track_time_interval(
+                self.hass, self._minute_tick, dt.timedelta(seconds=60)
+            )
+
+        remaining_min = max(0.0, (next_ts.timestamp() - time.time()) / 60.0)
 
         last_topup = det.get("last_topup") or {}
         return {
@@ -253,6 +265,7 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "tariff": tariff,
             "next_tariff_state": next_state,
             "next_tariff_change": next_ts.isoformat(),
+            "tariff_change_in_min": round(remaining_min, 1),
             "spend_today_peak": today_split.get("peak", 0.0),
             "spend_today_offpeak": today_split.get("off-peak", 0.0),
             "spend_month_peak": month_peak,
@@ -261,3 +274,32 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "pricing_grid": PRICING_GRID,
             "last_success_ts": self.last_success_ts,
         }
+
+    async def _minute_tick(self, _now: dt.datetime) -> None:
+        """Tick minute : met à jour le compte à rebours sans toucher l'API.
+
+        Gère aussi le franchissement d'une frontière tarifaire (bascule
+        auto peak/off-peak + calcul du changement suivant).
+        """
+        if self.data is None or self._next_ts is None:
+            return
+        now = dt.datetime.now().astimezone()
+        new_data = dict(self.data)
+        tariff_changed = False
+
+        if now >= self._next_ts:
+            # Frontière franchie : on bascule et on calcule la suivante.
+            new_data["tariff"] = new_data.get("next_tariff_state", "off-peak")
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            next_state, next_ts = next_tariff_change(now_utc)
+            self._next_ts = next_ts
+            new_data["next_tariff_state"] = next_state
+            new_data["next_tariff_change"] = next_ts.isoformat()
+            tariff_changed = True
+
+        remaining_min = max(0.0, (self._next_ts.timestamp() - time.time()) / 60.0)
+        new_rounded = round(remaining_min, 1)
+        if not tariff_changed and new_rounded == new_data.get("tariff_change_in_min"):
+            return  # rien de nouveau à publier
+        new_data["tariff_change_in_min"] = new_rounded
+        self.async_set_updated_data(new_data)
