@@ -19,7 +19,7 @@ A **Home Assistant custom integration** that shows your **DeepSeek API account b
   - `Projected month spend` — current burn rate extrapolated to month end
   - `Average daily spend (30d)` — rolling average from locally stored history
   - `Estimated days left` — balance ÷ average daily spend
-- **Billing period sensor `tariff`**: `peak` / `off-peak` (official DeepSeek windows: peak = 01:00–04:00 & 06:00–10:00 UTC), with `next_tariff_change` + the official price grid (USD/M tokens, peak & off-peak) in attributes — usable in automations to schedule heavy jobs off-peak (−50 %).
+- **Billing period sensor `tariff`**: `peak` / `off-peak` (official DeepSeek windows: peak = 01:00–04:00 & 06:00–10:00 UTC, **Monday through Friday** — weekends are off-peak all day, per the rule effective 2026-08-23), with `next_tariff_change` + the official price grid (USD/M tokens, peak & off-peak) in attributes — usable in automations to schedule heavy jobs off-peak (−50 %).
 - **Peak/off-peak spend split**: today's and month's spend attributed to peak vs off-peak buckets (local approximation from poll timestamps), plus `potential_savings_month` = what shifting the peak spend to off-peak would save (peak spend ÷ 2).
 - **Binary sensor `API status`**: on when the DeepSeek API is reachable (device class `connectivity`).
 - **Automatic top-up detection**: when the topped-up balance increases, the difference is **not** counted as spend (local state, persists across restarts).

@@ -27,29 +27,47 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def tariff_at(hour_utc: int) -> str:
-    """Renvoie 'peak' ou 'off-peak' pour une heure UTC donnée (fenêtres officielles)."""
+# Heures UTC auxquelles le tarif peut basculer (début/fin de chaque fenêtre pleine).
+_TARIFF_BOUNDARIES_UTC = (1, 4, 6, 10)
+
+
+def tariff_at(when_utc: dt.datetime) -> str:
+    """Renvoie 'peak' ou 'off-peak' pour un instant UTC donné.
+
+    Samedi/dimanche (UTC) = heures creuses toute la journée. La condition de
+    jour est arrivée APRÈS la grille de prix (effective le 23/08/2026, cf.
+    const.py) : ne jamais tester les seules fenêtres horaires, sinon 14 h par
+    semaine sont annoncées à tort en « peak » et les capteurs d'économies sont
+    surestimés.
+    """
+    if when_utc.weekday() >= 5:
+        return "off-peak"
     for start, end in PEAK_WINDOWS_UTC:
-        if start <= hour_utc < end:
+        if start <= when_utc.hour < end:
             return "peak"
     return "off-peak"
 
 
 def next_tariff_change(now_utc: dt.datetime) -> tuple[str, dt.datetime]:
-    """Prochaine bascule tarifaire → (état après bascule, horodatage)."""
-    boundaries = (1, 4, 6, 10)  # heures UTC des changements
-    nxt = None
-    for bd in boundaries:
-        cand = now_utc.replace(hour=bd, minute=0, second=0, microsecond=0)
-        if cand > now_utc:
-            nxt = cand
-            break
-    if nxt is None:  # après 10h UTC → bascule à 01h le lendemain
-        nxt = (now_utc + dt.timedelta(days=1)).replace(
-            hour=1, minute=0, second=0, microsecond=0
-        )
-    state = "peak" if nxt.hour in (1, 6) else "off-peak"
-    return state, nxt
+    """Prochaine bascule tarifaire → (état après bascule, horodatage).
+
+    Les bascules n'ont lieu qu'aux heures 01/04/06/10 UTC. Comme le week-end est
+    entièrement creux, la prochaine bascule après vendredi 10:00 UTC est le
+    lundi 01:00 UTC : le compte à rebours saute donc le week-end au lieu
+    d'annoncer une bascule le samedi.
+    """
+    current = tariff_at(now_utc)
+    base = now_utc.replace(minute=0, second=0, microsecond=0)
+    for day_offset in range(8):
+        day = base + dt.timedelta(days=day_offset)
+        for boundary in _TARIFF_BOUNDARIES_UTC:
+            candidate = day.replace(hour=boundary)
+            if candidate <= now_utc:
+                continue
+            state = tariff_at(candidate)
+            if state != current:
+                return state, candidate
+    return current, base + dt.timedelta(days=1)  # repli théoriquement inatteignable
 
 
 async def fetch_balance(
@@ -118,7 +136,7 @@ class DeepSeekUsageStore:
         now = self._now()
         day_key = now.strftime("%Y-%m-%d")
         month_key = now.strftime("%Y-%m")
-        bucket = tariff_at(now.astimezone(dt.timezone.utc).hour)
+        bucket = tariff_at(now.astimezone(dt.timezone.utc))
 
         days: dict[str, float] = data["days"]
         months: dict[str, float] = data["months"]
@@ -237,7 +255,7 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         potential_savings = round(month_peak / 2, 2) if month_peak > 0 else 0.0
 
         now_utc = dt.datetime.now(dt.timezone.utc)
-        tariff = tariff_at(now_utc.hour)
+        tariff = tariff_at(now_utc)
         next_state, next_ts = next_tariff_change(now_utc)
         self._next_ts = next_ts
 
