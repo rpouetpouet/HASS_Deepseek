@@ -19,7 +19,9 @@ A **Home Assistant custom integration** that shows your **DeepSeek API account b
   - `Projected month spend` — current burn rate extrapolated to month end
   - `Average daily spend (30d)` — rolling average from locally stored history
   - `Estimated days left` — balance ÷ average daily spend
-- **Billing period sensor `tariff`**: `peak` / `off-peak` (official DeepSeek windows: peak = 01:00–04:00 & 06:00–10:00 UTC, **Monday through Friday** — weekends are off-peak all day, per the rule effective 2026-08-23), with `next_tariff_change` + the official price grid (USD/M tokens, peak & off-peak) in attributes — usable in automations to schedule heavy jobs off-peak (−50 %).
+- **Billing period sensor `tariff`**: `peak` / `off-peak` (official DeepSeek windows: peak = 01:00–04:00 & 06:00–10:00 UTC, **Monday through Friday, excluding Chinese public holidays** — weekends and Chinese public holidays are off-peak all day, per the rules effective 2026-08-23 and 2026-09), with `next_tariff_change` + the official price grid (USD/M tokens, peak & off-peak) in attributes — usable in automations to schedule heavy jobs off-peak (−50 %).
+  - Price grid: `deepseek-flash` (and its legacy aliases) **$0.006/$0.003** cache-hit, **$0.30/$0.15** cache-miss, **$1.20/$0.60** output (peak/off-peak, USD per M tokens); `deepseek-v4-pro` **$0.044/$0.022**, **$1.32/$0.66**, **$3.96/$1.98**.
+  - Chinese public holidays are baked into `const.py` (`HOLIDAYS_CN`) from the State Council's annual holiday notice — DeepSeek does not publish that list, so it has to be refreshed once a year (the notice for year N+1 lands around early November).
 - **Peak/off-peak spend split**: today's and month's spend attributed to peak vs off-peak buckets (local approximation from poll timestamps), plus `potential_savings_month` = what shifting the peak spend to off-peak would save (peak spend ÷ 2).
 - **Binary sensor `API status`**: on when the DeepSeek API is reachable (device class `connectivity`).
 - **Automatic top-up detection**: when the topped-up balance increases, the difference is **not** counted as spend (local state, persists across restarts).

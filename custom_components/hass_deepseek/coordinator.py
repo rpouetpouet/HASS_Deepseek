@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     API_BALANCE_URL,
     CONF_API_KEY,
+    HOLIDAYS_CN,
     PEAK_WINDOWS_UTC,
     PRICING_GRID,
     STORAGE_VERSION,
@@ -30,17 +31,33 @@ _LOGGER = logging.getLogger(__name__)
 # Heures UTC auxquelles le tarif peut basculer (début/fin de chaque fenêtre pleine).
 _TARIFF_BOUNDARIES_UTC = (1, 4, 6, 10)
 
+# Fuseau de la Chine (UTC+8) : les jours fériés sont des journées civiles locales,
+# et les fenêtres pleines (01-04 et 06-10 UTC) tombent le même jour civil chinois.
+CN_TZ = dt.timezone(dt.timedelta(hours=8))
+
+# Profondeur de recherche de la prochaine bascule, en jours. Doit couvrir les
+# plus longues interruptions de fenêtres pleines : Nouvel An chinois (9 jours
+# en 2026) et Golden Week (7 jours), week-end accolé inclus.
+_TARIFF_SCAN_DAYS = 21
+
+
+def _is_holiday_cn(when_utc: dt.datetime) -> bool:
+    """Jour férié chinois ? (date LOCALE chinoise, pas la date UTC)."""
+    return when_utc.astimezone(CN_TZ).date().isoformat() in HOLIDAYS_CN
+
 
 def tariff_at(when_utc: dt.datetime) -> str:
     """Renvoie 'peak' ou 'off-peak' pour un instant UTC donné.
 
-    Samedi/dimanche (UTC) = heures creuses toute la journée. La condition de
-    jour est arrivée APRÈS la grille de prix (effective le 23/08/2026, cf.
+    Samedi/dimanche (UTC) et jours fériés chinois = heures creuses toute la
+    journée. La condition de jour est arrivée APRÈS la grille de prix (effective
+    le 23/08/2026) et la clause « excluding Chinese public holidays » encore
+    après (ajoutée à la page pricing entre le 17/09 et le 22/09/2026, cf.
     const.py) : ne jamais tester les seules fenêtres horaires, sinon 14 h par
-    semaine sont annoncées à tort en « peak » et les capteurs d'économies sont
-    surestimés.
+    semaine (week-end) + 3 h par férié ouvré sont annoncées à tort en « peak »
+    et les capteurs d'économies sont surestimés.
     """
-    if when_utc.weekday() >= 5:
+    if when_utc.weekday() >= 5 or _is_holiday_cn(when_utc):
         return "off-peak"
     for start, end in PEAK_WINDOWS_UTC:
         if start <= when_utc.hour < end:
@@ -51,14 +68,17 @@ def tariff_at(when_utc: dt.datetime) -> str:
 def next_tariff_change(now_utc: dt.datetime) -> tuple[str, dt.datetime]:
     """Prochaine bascule tarifaire → (état après bascule, horodatage).
 
-    Les bascules n'ont lieu qu'aux heures 01/04/06/10 UTC. Comme le week-end est
-    entièrement creux, la prochaine bascule après vendredi 10:00 UTC est le
-    lundi 01:00 UTC : le compte à rebours saute donc le week-end au lieu
-    d'annoncer une bascule le samedi.
+    Les bascules n'ont lieu qu'aux heures 01/04/06/10 UTC. Comme le week-end et
+    les jours fériés chinois sont entièrement creux, la prochaine bascule après
+    vendredi 10:00 UTC est le lundi 01:00 UTC (le compte à rebours saute donc le
+    week-end), et après le dernier jour ouvré avant une Golden Week elle tombe
+    jusqu'à 10 jours plus loin : d'où un balayage large (_TARIFF_SCAN_DAYS) —
+    un balayage trop court retomberait sur le repli « inatteignable » et
+    annoncerait une bascule fantôme.
     """
     current = tariff_at(now_utc)
     base = now_utc.replace(minute=0, second=0, microsecond=0)
-    for day_offset in range(8):
+    for day_offset in range(_TARIFF_SCAN_DAYS):
         day = base + dt.timedelta(days=day_offset)
         for boundary in _TARIFF_BOUNDARIES_UTC:
             candidate = day.replace(hour=boundary)
