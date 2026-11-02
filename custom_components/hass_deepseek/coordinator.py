@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     API_BALANCE_URL,
     CONF_API_KEY,
+    DOMAIN,
     HOLIDAYS_CN,
     PEAK_WINDOWS_UTC,
     PRICING_GRID,
@@ -128,14 +129,62 @@ class DeepSeekUsageStore:
     """Persiste le suivi des dépenses (delta de solde) entre les redémarrages HA."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        self._entry_id = entry_id
+        # Cle namespaced par le domaine + ecriture atomique (temp + rename) : une
+        # coupure pendant l'ecriture ne peut plus tronquer le fichier.
         self._store: Store = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{DOMAIN}.usage.{entry_id}",
+            atomic_writes=True,
+        )
+        # Ancienne cle (v0.1.x ecrivait sous "custom_components.usage.<entry>") :
+        # ouverte en lecture seule pour la migration unique, puis supprimee.
+        self._legacy_store: Store = Store(
             hass, STORAGE_VERSION, f"{__name__.split('.')[0]}.usage.{entry_id}"
         )
         self._data: dict[str, Any] | None = None
 
+    async def _async_migrate_legacy(self) -> dict[str, Any]:
+        """Reprend un store ecrit sous l'ancienne cle, une seule fois.
+
+        Ne s'execute que si le nouveau store est vide : des donnees vivantes ne
+        peuvent donc jamais etre ecrasees par un ancien snapshot. La marque
+        ``migrated_from`` documente l'origine, et le fichier legacy est supprime
+        apres une ecriture reussie (sinon il resterait une source de verite
+        concurrente).
+        """
+        legacy_key = f"{__name__.split('.')[0]}.usage.{self._entry_id}"
+        try:
+            legacy = await self._legacy_store.async_load()
+        except Exception as err:  # fichier illisible : on repart proprement
+            _LOGGER.warning("Ancien store DeepSeek illisible (%s) : ignore", err)
+            return {}
+        if not isinstance(legacy, dict) or not legacy:
+            return {}
+
+        legacy["migrated_from"] = legacy_key
+        legacy["migrated_at"] = dt.datetime.now().astimezone().isoformat()
+        await self._store.async_save(legacy)
+        try:
+            await self._legacy_store.async_remove()
+        except Exception as err:  # fichier conserve : la migration ne sera pas rejouee
+            _LOGGER.warning("Ancien store DeepSeek conserve (%s)", err)
+        _LOGGER.info(
+            "Store DeepSeek migre de %s vers %s.usage.%s : %d jour(s), %d mois repris",
+            legacy_key,
+            DOMAIN,
+            self._entry_id,
+            len(legacy.get("days") or {}),
+            len(legacy.get("months") or {}),
+        )
+        return legacy
+
     async def _ensure(self) -> dict[str, Any]:
         if self._data is None:
             raw = await self._store.async_load()
+            if not isinstance(raw, dict) or not raw:
+                raw = await self._async_migrate_legacy()
             self._data = raw if isinstance(raw, dict) else {}
             self._data.setdefault("last_total", None)
             self._data.setdefault("last_topped", None)
