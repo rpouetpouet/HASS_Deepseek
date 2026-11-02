@@ -6,10 +6,10 @@ import calendar
 import datetime as dt
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 import aiohttp
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.event import async_track_time_interval
@@ -34,6 +34,12 @@ _TARIFF_BOUNDARIES_UTC = (1, 4, 6, 10)
 # Fuseau de la Chine (UTC+8) : les jours fériés sont des journées civiles locales,
 # et les fenêtres pleines (01-04 et 06-10 UTC) tombent le même jour civil chinois.
 CN_TZ = dt.timezone(dt.timedelta(hours=8))
+
+# Fuseau des journees DeepSeek : 00:00 UTC+1 FIXE, verifie sur les exports natifs
+# (toutes les bornes start_time_iso/end_time_iso portent +01:00, meme en ete).
+# En hiver cela coincide avec Paris ; en ete (CEST) la journee plateforme commence
+# a 01:00 Paris -> les buckets doivent etre calcules ici, pas en heure locale.
+PLATFORM_TZ = dt.timezone(dt.timedelta(hours=1), "DeepSeek day (UTC+1)")
 
 # Profondeur de recherche de la prochaine bascule, en jours. Doit couvrir les
 # plus longues interruptions de fenêtres pleines : Nouvel An chinois (9 jours
@@ -133,6 +139,9 @@ class DeepSeekUsageStore:
             self._data = raw if isinstance(raw, dict) else {}
             self._data.setdefault("last_total", None)
             self._data.setdefault("last_topped", None)
+            self._data.setdefault("last_granted", None)
+            self._data.setdefault("last_ts", None)
+            self._data.setdefault("unallocated", 0.0)
             self._data.setdefault("days", {})
             self._data.setdefault("months", {})
             self._data.setdefault("day_split", {})
@@ -144,18 +153,32 @@ class DeepSeekUsageStore:
     def _now() -> dt.datetime:
         return dt.datetime.now().astimezone()
 
-    async def record(self, cur_total: float, cur_topped: float) -> tuple[float, float]:
+    async def record(
+        self,
+        cur_total: float,
+        cur_granted: float,
+        cur_topped: float,
+        max_gap_min: float,
+    ) -> tuple[float, float]:
         """Enregistre un point de solde ; renvoie (spend_today, spend_month).
 
-        top-up détecté : si topped_up augmente, l'écart n'est pas compté comme dépense
-        et la recharge est mémorisée (montant + horodatage).
+        top-up / crédit offert détectés : si topped_up ou granted augmentent, l'écart
+        n'est pas compté comme dépense et la recharge est mémorisée (montant + date).
+
+        Trou de mesure : si le dernier relevé date de plus de ``max_gap_min`` minutes,
+        le delta n'est PAS attribué au jour courant (il couvre plusieurs jours qu'on ne
+        sait plus répartir) : il part dans ``unallocated`` et lève un WARNING. Sans ce
+        garde-fou, un poll qui repart après plusieurs jours verse tout le trou sur la
+        journée en cours (constaté : 2,11 $ d'octobre comptés sur le 1er novembre).
+
         La dépense est aussi ventilée peak / off-peak selon le tarif en vigueur
         à l'instant du poll (approximation : pas de timestamps par requête).
         """
         data = await self._ensure()
         now = self._now()
-        day_key = now.strftime("%Y-%m-%d")
-        month_key = now.strftime("%Y-%m")
+        platform_now = now.astimezone(PLATFORM_TZ)
+        day_key = platform_now.strftime("%Y-%m-%d")
+        month_key = platform_now.strftime("%Y-%m")
         bucket = tariff_at(now.astimezone(dt.timezone.utc))
 
         days: dict[str, float] = data["days"]
@@ -171,27 +194,67 @@ class DeepSeekUsageStore:
 
         last_total = data["last_total"]
         last_topped = data["last_topped"]
+        last_granted = data["last_granted"]
+        last_ts_iso = data["last_ts"]
 
-        if last_total is None or last_topped is None:
+        gap_min: float | None = None
+        if last_ts_iso:
+            try:
+                gap_min = (now.timestamp() - dt.datetime.fromisoformat(last_ts_iso).timestamp()) / 60.0
+            except (TypeError, ValueError):
+                gap_min = None
+
+        if last_total is None or last_topped is None or last_granted is None:
             # Premier point : pas encore de dépense mesurable.
             data["last_total"] = cur_total
             data["last_topped"] = cur_topped
+            data["last_granted"] = cur_granted
+            data["last_ts"] = now.isoformat()
         else:
             topup = max(0.0, cur_topped - last_topped)
+            grant = max(0.0, cur_granted - last_granted)
             if topup > 0:
-                data["last_topup"] = {"amount": topup, "ts": now.isoformat()}
-            spend = (last_total + topup) - cur_total
+                # Recharge ET consommation dans la même fenêtre : le montant exact de
+                # la recharge est indécidable (topped_up baisse avec la conso), donc la
+                # dépense de la fenêtre est au mieux une borne basse. On la signale.
+                data["last_topup"] = {
+                    "amount": topup,
+                    "ts": now.isoformat(),
+                    "ambiguous": True,
+                    "gap_min": round(gap_min, 1) if gap_min is not None else None,
+                }
+                _LOGGER.warning(
+                    "Recharge détectée (%.2f) depuis le relevé précédent : la dépense "
+                    "de cette fenêtre ne peut pas être isolée (poll suivant à réduire).",
+                    topup,
+                )
+            spend = (last_total + topup + grant) - cur_total
             if spend < 0:
+                # Solde remonté sans recharge détectée : écart à expliquer, pas une dépense.
+                data["unallocated"] = data.get("unallocated", 0.0) + spend
                 spend = 0.0
-            days[day_key] += spend
-            months[month_key] += spend
-            day_split[day_key][bucket] += spend
-            if bucket == "peak":
-                months_peak[month_key] += spend
+            if gap_min is not None and gap_min > max_gap_min:
+                _LOGGER.warning(
+                    "Trou de mesure de %.0f min (max %.0f) : %.4f %s non attribués à %s",
+                    gap_min,
+                    max_gap_min,
+                    spend,
+                    data.get("currency", "USD"),
+                    day_key,
+                )
+                data["unallocated"] = data.get("unallocated", 0.0) + spend
             else:
-                months_offpeak[month_key] += spend
+                days[day_key] += spend
+                months[month_key] += spend
+                day_split[day_key][bucket] += spend
+                if bucket == "peak":
+                    months_peak[month_key] += spend
+                else:
+                    months_offpeak[month_key] += spend
             data["last_total"] = cur_total
             data["last_topped"] = cur_topped
+            data["last_granted"] = cur_granted
+            data["last_ts"] = now.isoformat()
 
         # Nettoyage : garder ~62 jours et 13 mois.
         keep_days = sorted(days, reverse=True)[:62]
@@ -219,6 +282,8 @@ class DeepSeekUsageStore:
             "months_peak": dict(data["months_peak"]),
             "months_offpeak": dict(data["months_offpeak"]),
             "last_topup": data.get("last_topup"),
+            "unallocated": float(data.get("unallocated") or 0.0),
+            "last_ts": data.get("last_ts"),
         }
 
 
@@ -233,13 +298,41 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.spend_month: float = 0.0
         self.last_success_ts: float | None = None
         self._next_ts: dt.datetime | None = None
-        self._ticker_started = False
+        self._unsub_ticker: Callable[[], None] | None = None
+        # Un delta mesuré au-delà de ce trou n'est pas attribuable à un jour précis.
+        self._max_gap_min: float = max(90.0, 3.0 * float(scan_interval_min))
         super().__init__(
             hass,
             _LOGGER,
             name="hass_deepseek",
             update_interval=dt.timedelta(minutes=scan_interval_min),
         )
+
+    @callback
+    def async_start_ticker(self) -> None:
+        """Enregistre le tick minute, une seule fois, hors du cycle de refresh.
+
+        Enregistré auparavant à l'intérieur de `_async_update_data`, le ticker ne
+        survivait pas au premier refresh des entités : plus aucun état n'était publié
+        ensuite (constaté : un seul relevé par démarrage de HA).
+        """
+        if self._unsub_ticker is not None:
+            return
+        self._unsub_ticker = async_track_time_interval(
+            self.hass, self._minute_tick, dt.timedelta(seconds=60)
+        )
+
+    @callback
+    def async_stop_ticker(self) -> None:
+        """Désenregistre le tick minute (déchargement / rechargement de l'entrée)."""
+        if self._unsub_ticker is not None:
+            self._unsub_ticker()
+            self._unsub_ticker = None
+
+    async def async_shutdown(self) -> None:
+        """Arrête le ticker avant l'arrêt du coordinateur."""
+        self.async_stop_ticker()
+        await super().async_shutdown()
 
     async def _async_update_data(self) -> dict[str, Any]:
         info = await fetch_balance(self.hass, self._api_key)
@@ -248,11 +341,15 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         granted = float(info.get("granted_balance") or 0)
         topped = float(info.get("topped_up_balance") or 0)
 
-        self.spend_today, self.spend_month = await self.usage_store.record(total, topped)
+        self.spend_today, self.spend_month = await self.usage_store.record(
+            total, granted, topped, self._max_gap_min
+        )
         self.last_success_ts = time.time()
 
         det = await self.usage_store.details()
-        now_local = dt.datetime.now().astimezone()
+        # Meme decoupage que la plateforme (UTC+1 fixe), sinon les jours d'ete sont
+        # decales d'une heure et incomparables au cout affiche par DeepSeek.
+        now_local = dt.datetime.now().astimezone().astimezone(PLATFORM_TZ)
         today_key = now_local.strftime("%Y-%m-%d")
         month_key = now_local.strftime("%Y-%m")
 
@@ -278,12 +375,6 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         tariff = tariff_at(now_utc)
         next_state, next_ts = next_tariff_change(now_utc)
         self._next_ts = next_ts
-
-        if not self._ticker_started:
-            self._ticker_started = True
-            async_track_time_interval(
-                self.hass, self._minute_tick, dt.timedelta(seconds=60)
-            )
 
         remaining_min = max(0.0, (next_ts.timestamp() - time.time()) / 60.0)
         remaining_int = int(round(remaining_min))
@@ -312,6 +403,8 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "potential_savings_month": potential_savings,
             "pricing_grid": PRICING_GRID,
             "last_success_ts": self.last_success_ts,
+            "last_poll_ts": det.get("last_ts"),
+            "unallocated_spend": det.get("unallocated", 0.0),
         }
 
     async def _minute_tick(self, _now: dt.datetime) -> None:

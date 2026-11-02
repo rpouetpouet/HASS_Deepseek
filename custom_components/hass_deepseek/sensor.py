@@ -212,15 +212,19 @@ class DeepSeekSensor(CoordinatorEntity[DeepSeekCoordinator], SensorEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.data is not None
+        """Indisponible dès que le dernier poll échoue (plus de données périmées affichées)."""
+        return self.coordinator.data is not None and self.coordinator.last_update_success
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         data = self.coordinator.data or {}
         attrs: dict[str, object] = {
             "last_success_ts": data.get("last_success_ts"),
+            "last_poll_ts": data.get("last_poll_ts"),
             "api_is_available": self.coordinator.last_update_success,
         }
+        if self.entity_description.key == "spend_today":
+            attrs["unallocated_spend"] = data.get("unallocated_spend")
         if self.entity_description.key == "last_topup_amount":
             attrs["last_topup_ts"] = data.get("last_topup_ts")
         if self.entity_description.key == "tariff":

@@ -32,6 +32,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:
         raise ConfigEntryNotReady(f"DeepSeek first refresh failed: {err}") from err
 
+    # Le ticker doit être enregistré hors du cycle de refresh : sinon il ne survit
+    # pas au premier refresh et plus aucun état n'est publié ensuite.
+    coordinator.async_start_ticker()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     async def _reload_on_options(
@@ -57,7 +61,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Décharge l'entrée."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        coordinator = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if coordinator is not None:
+            coordinator.async_stop_ticker()
         listener = hass.data[DOMAIN].pop(entry.entry_id + _UNDO_UPDATE_LISTENER, None)
         if listener is not None:
             listener()
