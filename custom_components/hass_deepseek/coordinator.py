@@ -434,4 +434,9 @@ class DeepSeekCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not tariff_changed and new_rounded == new_data.get("tariff_change_in_min"):
             return  # rien de nouveau à publier
         new_data["tariff_change_in_min"] = new_rounded
-        self.async_set_updated_data(new_data)
+        # NE PAS appeler async_set_updated_data ici : il annule le refresh programme
+        # puis le recale d'un intervalle complet (cf. _schedule_refresh) a CHAQUE tick
+        # de 60 s -> le poll periodique ne se declenche jamais (un seul poll par
+        # demarrage de HA, constate les 29/10 -> 01/11/2026). On publie sans timer.
+        self.data = new_data
+        self.async_update_listeners()

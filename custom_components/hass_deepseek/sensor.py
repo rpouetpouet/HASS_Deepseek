@@ -228,6 +228,7 @@ class DeepSeekSensor(CoordinatorEntity[DeepSeekCoordinator], SensorEntity):
         if self.entity_description.key == "last_topup_amount":
             attrs["last_topup_ts"] = data.get("last_topup_ts")
         if self.entity_description.key == "tariff":
+            attrs["tariff_change_in_min"] = data.get("tariff_change_in_min")
             attrs["next_tariff_state"] = data.get("next_tariff_state")
             attrs["next_tariff_change"] = data.get("next_tariff_change")
             attrs["pricing_grid_usd_per_m"] = data.get("pricing_grid")
